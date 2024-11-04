@@ -1,0 +1,103 @@
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Embedding, Lambda
+from tensorflow.keras.preprocessing.text import Tokenizer
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+import re
+
+# Sample text data
+data = """My name is Vaishnavi Kanade, and I’m working on deep learning lab assignments as part of my studies.
+These assignments help me learn how to use different deep learning tools like TensorFlow, Keras, Theano, 
+and PyTorch to solve problems using computers. In these assignments, we study how computers process information.
+A computational process is like an invisible machine inside the computer that works with data. The way this process
+works is controlled by rules, and these rules are written in something called a program. People create programs to tell
+computers what to do. As I work with these deep learning tools, I’m learning how to create models that can understand
+data. These tools are like magic spells that help computers learn and solve problems more efficiently. Through this,
+I am gaining practical experience in machine learning and artificial intelligence."""
+
+# Preprocessing the data
+sentences = data.split(".")
+clean_sentences = []
+for sentence in sentences:
+    if sentence.strip():
+        sentence = re.sub('[^A-Za-z0-9]+', ' ', sentence).strip().lower()
+        clean_sentences.append(sentence)
+
+# Define the corpus
+corpus = clean_sentences
+
+# Convert the corpus to a sequence of integers
+tokenizer = Tokenizer()
+tokenizer.fit_on_texts(corpus)
+sequences = tokenizer.texts_to_sequences(corpus)
+
+# Mapping for word to index and index to word
+index_to_word_map = {index: word for word, index in tokenizer.word_index.items()}
+word_to_index_map = {word: index for index, word in index_to_word_map.items()}
+
+# Define training data for CBOW
+window_size = 2
+contexts, targets = [], []
+for sequence in sequences:
+    for i in range(window_size, len(sequence) - window_size):
+        context = sequence[i - window_size:i] + sequence[i + 1:i + window_size + 1]
+        target = sequence[i]
+        contexts.append(context)
+        targets.append(target)
+
+X = np.array(contexts)
+Y = np.array(targets)
+
+# Define the CBOW model
+vocab_size = len(tokenizer.word_index) + 1
+embedding_size = 10
+model = Sequential([
+    Embedding(input_dim=vocab_size, output_dim=embedding_size, input_length=2 * window_size),
+    Lambda(lambda x: tf.reduce_mean(x, axis=1)),
+    Dense(256, activation='relu'),
+    Dense(512, activation='relu'),
+    Dense(units=vocab_size, activation='softmax')
+])
+model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+# Train the model
+model.fit(X, Y, epochs=200, verbose=1)
+
+# Retrieve the word embeddings and reduce dimensionality with PCA
+embeddings = model.get_weights()[0]
+pca = PCA(n_components=2)
+reduced_embeddings = pca.fit_transform(embeddings)
+
+# Visualize the embeddings
+plt.figure(figsize=(7, 7))
+for i, word in enumerate(tokenizer.word_index.keys()):
+    x, y = reduced_embeddings[i]
+    plt.scatter(x, y)
+    plt.annotate(word, xy=(x, y), xytext=(5, 2), textcoords='offset points', ha='right', va='bottom')
+plt.show()
+
+# Testing on new sentences
+test_sentences = [
+    "Vaishnavi Kanade is doing deep learning lab assignments",
+    "We are studying computational processes and data",
+    "People create programs to direct processes",
+    "Processes manipulate abstract things called data",
+    "The evolution of a process is guided by a program",
+    "Deep learning uses tools like TensorFlow and Keras",
+    "Computers process information using programs",
+    "Neural networks solve problems using data"
+]
+
+for test_sentence in test_sentences:
+    test_words = test_sentence.split(" ")
+    x_test = [word_to_index_map.get(word, 0) for word in test_words]
+    
+    if len(x_test) < 7:
+        x_test = np.pad(x_test, (0, 7 - len(x_test)), 'constant')
+    x_test = np.array([x_test])
+
+    predictions = model.predict(x_test)
+    y_pred = np.argmax(predictions[0])
+    print(f"{test_sentence} => Prediction: {index_to_word_map.get(y_pred, 'Unknown')}")
